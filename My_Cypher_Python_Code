@@ -1,0 +1,158 @@
+CALL apoc.schema.assert(
+{Category:['name']},
+{Business:['id'], User:['id'], Review:['id']});
+
+
+CALL apoc.load.json
+('file:///yelp_academic_dataset_business.json')
+YIELD value
+RETURN count(value)
+
+
+CALL apoc.periodic.iterate(
+"CALL apoc.load.json('file:///yelp_academic_dataset_business.json')
+YIELD value
+return value",
+"MERGE (b:Business{id : value.business_id})
+SET b += apoc.map.clean(value,
+['attributes','hours','business_id','categories'],[])
+WITH b, split(value.categories, ',') as categories
+UNWIND categories as category
+MERGE (c:Category{id : trim(category)})
+MERGE (b)-[:IN_CATEGORY]->(c)",
+{batchSize: 10000, iterateList: true}
+)
+YIELD batches, total
+return batches, total;
+
+match (b:Business), (c:Category)
+return count(distinct b) as number_of_businesses,
+count(distinct c) as number_of_catagories
+
+match path1 = (:Business)-[:IN_CATEGORY]->(c1:Category)
+match path2 = (:Business)-[:IN_CATEGORY]->(c2:Category)
+where id(c1)<>id(c2)
+return path1, path2 limit 2
+
+match path = (b:Business)
+where b.city = 'Reno'
+return b.id, b.name
+
+match (b:Business)
+where b.name = "The UPS Store"
+return b.id, b.name, b.city
+
+
+match path = (b:Business)-[:IN_CATEGORY]->(c:Category)
+where b.id = "mpf3x-BjTdTEA3yCZrAYPw"
+return path
+
+match path = (b:Business)-[:IN_CATEGORY]->(c:Category)
+where b.id = "TF6QZYUR5atqBEFnHP5bOw"
+return path
+
+////////////////
+
+match (b:Business)
+return min(apoc.node.degree(b,'IN_CATEGORY')) as min_degree,
+max(apoc.node.degree(b,'IN_CATEGORY')) as max_degree,
+avg(apoc.node.degree(b,'IN_CATEGORY')) as mean_degree,
+stDev(apoc.node.degree(b,'IN_CATEGORY')) as std_degree
+
+match (b:Business)
+return id(b) as nid, apoc.node.degree(b,'IN_CATEGORY') as degree
+order by nid
+
+CALL apoc.export.csv.query(
+  "MATCH (b:Business)
+   RETURN id(b) AS nid, apoc.node.degree(b, 'IN_CATEGORY') AS degree
+   ORDER BY nid",
+  "file:///bdegree_2022.csv",
+  {}
+)
+YIELD file, nodes, relationships, properties, time
+RETURN file, nodes, relationships, properties, time;
+
+import pandas as pd
+df = pd.read_csv("bdegree_2022.csv")
+df
+# Calculate the frequency of each degree value
+degree_counts = df['degree'].value_counts().sort_index()
+
+# Display the frequency table
+degree_counts
+
+import matplotlib.pyplot as plt
+
+# Plot the histogram
+plt.figure(figsize=(10, 6))
+plt.bar(degree_counts.index, degree_counts.values, width=0.8, color='blue', alpha=0.7)
+plt.xlabel('Degree of Business Nodes (IN_CATEGORY)')
+plt.ylabel('Frequency')
+plt.title('Histogram of Degree Frequency for Business Nodes')
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.xticks(degree_counts.index)
+plt.show()
+
+
+CREATE CONSTRAINT station_crs
+FOR (s:Station) REQUIRE s.crs IS UNIQUE;
+
+LOAD CSV WITH HEADERS FROM "file:///nr-stations-all.csv" AS row
+CREATE (s:Station)
+SET s.crs = row.crs,
+    s.name = row.name,
+    s.address = row.address,
+    s.long = toFloat(row.long),
+    s.lat = toFloat(row.lat);
+
+LOAD CSV WITH HEADERS FROM "file:///nr-station-links.csv" AS row
+MATCH (from:Station {crs: row.from})
+MATCH (to:Station {crs: row.to})
+MERGE (from)-[:TRACK {distance: round(toFloat(row.distance), 2)}]->(to);
+
+MATCH (s:Station)
+RETURN COUNT(s) AS num_stations;
+
+MATCH ()-[r:TRACK]->()
+RETURN COUNT(r) AS num_tracks;
+
+
+MATCH (start:Station {crs: "LBG"})-[:TRACK*1..2]-(end:Station)
+RETURN start, end;
+
+
+MATCH (start:Station {crs: "CRE"}), (end:Station {crs: "KGE"})
+CALL apoc.algo.dijkstra(start, end, 'TRACK', 'distance') YIELD path, weight
+RETURN path, weight,
+       [rel in relationships(path) | rel.distance] AS distances;
+
+
+
+
+CREATE CONSTRAINT karate_id_unique
+FOR (k:Karate)
+REQUIRE k.id IS UNIQUE;
+
+
+LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+WITH toInteger(row.nid1) AS nid1
+MERGE (k:Karate {id: nid1});
+
+
+LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+UNWIND split(row.nid2, " ") AS nid2_split
+WITH toInteger(nid2_split) AS nid2
+MERGE (k:Karate {id: nid2});
+
+
+LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+WITH toInteger(row.nid1) AS nid1, row.nid2 AS nid2
+UNWIND split(nid2, " ") AS nid2_split
+WITH nid1, toInteger(nid2_split) AS nid2_int
+MATCH (k1:Karate {id: nid1})
+MATCH (k2:Karate {id: nid2_int})
+MERGE (k1)-[:Link]->(k2);
+
+MATCH (k1:Karate)-[r:Link]->(k2:Karate)
+RETURN k1, r, k2;
