@@ -129,30 +129,62 @@ RETURN path, weight,
 
 
 
-
 CREATE CONSTRAINT karate_id_unique
 FOR (k:Karate)
 REQUIRE k.id IS UNIQUE;
 
 
-LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+LOAD CSV WITH HEADERS FROM "file:///zackary.csv" AS row
 WITH toInteger(row.nid1) AS nid1
 MERGE (k:Karate {id: nid1});
 
-
-LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+LOAD CSV WITH HEADERS FROM "file:///zackary.csv" AS row
 UNWIND split(row.nid2, " ") AS nid2_split
 WITH toInteger(nid2_split) AS nid2
 MERGE (k:Karate {id: nid2});
 
 
-LOAD CSV WITH HEADERS FROM "file:///zachary_karate_club.csv" AS row
+LOAD CSV WITH HEADERS FROM "file:///zackary.csv" AS row
 WITH toInteger(row.nid1) AS nid1, row.nid2 AS nid2
 UNWIND split(nid2, " ") AS nid2_split
 WITH nid1, toInteger(nid2_split) AS nid2_int
 MATCH (k1:Karate {id: nid1})
 MATCH (k2:Karate {id: nid2_int})
-MERGE (k1)-[:Link]->(k2);
+MERGE (k1)-[:Link]-(k2);
 
-MATCH (k1:Karate)-[r:Link]->(k2:Karate)
+MATCH (k1:Karate)-[r:Link]-(k2:Karate)
 RETURN k1, r, k2;
+
+
+CALL gds.graph.project(
+'karateGraph',
+'Karate',
+{
+Link: {
+type: 'Link',
+orientation: 'UNDIRECTED' // Treat relationships as undirected
+}
+}
+);
+
+
+CALL gds.degree.stream('karateGraph')
+YIELD nodeId, score
+RETURN gds.util.asNode(nodeId).id AS id, score
+ORDER BY score DESC;
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+df = pd.read_csv('Karate_Degree.csv')
+print(df.head())
+
+
+plt.figure(figsize=(12, 8))
+plt.bar(df['id'], df['score'], color='skyblue')
+plt.xlabel('Node ID')
+plt.ylabel('Degree Centrality')
+plt.title('Degree Centrality of Karate Club Nodes')
+plt.show()
+
